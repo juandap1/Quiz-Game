@@ -1,8 +1,12 @@
 <template>
   <q-page class="flex flex-center bg-dark">
-    <div class="record-cont" id="playBtn">
+    <div class="record-cont" id="playBtn" @click="start">
       <img class="record-img" src="Record.svg" />
-      <q-icon class="record-icon" name="img:play.png" />
+      <q-icon v-if="!playing" class="record-icon" name="img:play.png" />
+      <q-icon v-else class="record-icon" name="img:eighth-note.png" />
+      <!-- <audio v-if="store.tracks.length != 0" ref="previewComp">
+        <source :src="store.tracks[0].preview_url" />
+      </audio> -->
     </div>
   </q-page>
 </template>
@@ -10,18 +14,35 @@
 <script>
 import { defineComponent } from "vue";
 import * as d3 from "d3";
+import { useAppStore } from "src/stores/appStore";
 
 export default defineComponent({
   name: "IndexPage",
+  setup() {
+    const store = useAppStore();
+    return {
+      store,
+    };
+  },
   data() {
     return {
       context: null,
       soundsrc: null,
       analyzer: null,
       frequency: null,
+      playing: false,
+      buffer: null,
     };
   },
   methods: {
+    start() {
+      if (this.playing) {
+        this.soundsrc.stop();
+      } else {
+        this.visualizer();
+      }
+      this.playing = !this.playing;
+    },
     init() {
       d3.select("#playBtn")
         .append("svg")
@@ -56,6 +77,24 @@ export default defineComponent({
         .style("stop-color", "rgb(0,0,0)")
         .style("stop-opacity", 0);
     },
+    fetchAudio(url) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("GET", url, true);
+        request.responseType = "arraybuffer";
+        request.onload = () => {
+          this.context.decodeAudioData(
+            request.response,
+            function (buffer) {
+              resolve(buffer);
+            },
+            function () {}
+          );
+        };
+        request.onerror = (e) => reject(e);
+        request.send();
+      });
+    },
     async getRefreshToken() {
       // refresh token that has been previously stored
       const refreshToken = localStorage.getItem("refresh_token");
@@ -79,13 +118,34 @@ export default defineComponent({
       localStorage.setItem("refresh_token", response.refreshToken);
     },
     async getPlaylist(url) {
-      const regex = /\/playlist\/(.+?)(\?.+)?$/;
-      const found = url.match(regex);
-      const playlistId = found[1];
+      if (useAppStore().playlist == null) {
+        const regex = /\/playlist\/(.+?)(\?.+)?$/;
+        const found = url.match(regex);
+        const playlistId = found[1];
+        fetch(
+          "http://localhost:5000/playlist?" +
+            new URLSearchParams({
+              playlist: playlistId,
+            }),
+          {
+            method: "GET",
+          }
+        )
+          .then(async (response) => {
+            const json = await response.json();
+            useAppStore().playlist = json;
+            this.getPlaylistTracks(playlistId);
+          })
+          .catch((err) => {
+            console.error(err);
+          });
+      }
+    },
+    async getPlaylistTracks(id) {
       fetch(
-        "http://localhost:5000/playlist?" +
+        "http://localhost:5000/playlist/tracks?" +
           new URLSearchParams({
-            playlist: playlistId,
+            playlist: id,
           }),
         {
           method: "GET",
@@ -93,7 +153,10 @@ export default defineComponent({
       )
         .then(async (response) => {
           const json = await response.json();
-          console.log(json);
+          const tracks = json.items
+            .map((x) => x.track)
+            .filter((x) => x.preview_url != null);
+          useAppStore().tracks = tracks;
         })
         .catch((err) => {
           console.error(err);
@@ -106,15 +169,46 @@ export default defineComponent({
       }
       return null;
     },
-    visualizer() {
+    async visualizer() {
       this.context = this.getAudioContext();
+      this.buffer = await this.fetchAudio(useAppStore().tracks[0].preview_url);
       this.soundsrc = this.context.createBufferSource();
       this.analyzer = this.context.createAnalyser();
       this.frequency = new Uint8Array(this.analyzer.frequencyBinCount);
 
-      this.soundsrc.buffer = buffer;
+      this.soundsrc.buffer = this.buffer;
       this.soundsrc.connect(this.context.destination);
       this.soundsrc.connect(this.analyzer);
+      this.soundsrc.start();
+      this.render();
+    },
+    render() {
+      var max = 255;
+      let color =
+        "rgb(" +
+        Math.floor(Math.random() * max) +
+        ", " +
+        Math.floor(Math.random() * max) +
+        ", " +
+        Math.floor(Math.random() * max) +
+        ")";
+      if (this.playing) {
+        requestAnimationFrame(this.render);
+      }
+      this.analyzer.getByteFrequencyData(this.frequency);
+      d3.select("#colored").style("stop-color", color);
+      d3.select("#playBtn")
+        .select("svg")
+        .selectAll("circle")
+        .data(this.frequency.slice(0, 10))
+        .attr("r", function (d) {
+          return (d / 255) * 50 + "%";
+        })
+        .enter()
+        .append("circle")
+        .attr("cx", "50%")
+        .attr("cy", "50%")
+        .attr("fill", "url(#gradient)");
     },
   },
   mounted() {
@@ -127,8 +221,8 @@ export default defineComponent({
 </script>
 <style scoped>
 .record-cont {
-  width: 350px;
-  height: 350px;
+  width: 500px;
+  height: 500px;
   display: flex;
   position: relative;
   align-items: center;
@@ -137,6 +231,8 @@ export default defineComponent({
 }
 
 .record-img {
+  width: 350px;
+  height: 350px;
   border-radius: 50%;
   transition: scale 0.5s;
   z-index: 2;
