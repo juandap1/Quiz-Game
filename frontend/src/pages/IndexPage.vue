@@ -32,16 +32,22 @@ export default defineComponent({
       frequency: null,
       playing: false,
       buffer: null,
+      omega: 0,
+      frame: 0,
+      color: null,
+      rot: 0,
     };
   },
   methods: {
     start() {
-      if (this.playing) {
-        this.soundsrc.stop();
-      } else {
-        this.visualizer();
+      if (useAppStore().tracks.length != 0) {
+        if (this.playing) {
+          this.soundsrc.stop();
+        } else {
+          this.visualizer();
+        }
+        this.playing = !this.playing;
       }
-      this.playing = !this.playing;
     },
     init() {
       d3.select("#playBtn")
@@ -184,19 +190,21 @@ export default defineComponent({
     },
     render() {
       var max = 255;
-      let color =
-        "rgb(" +
-        Math.floor(Math.random() * max) +
-        ", " +
-        Math.floor(Math.random() * max) +
-        ", " +
-        Math.floor(Math.random() * max) +
-        ")";
-      if (this.playing) {
+      if (this.frame % 20 == 0 || this.color == null)
+        this.color =
+          "rgb(" +
+          Math.floor(Math.random() * max) +
+          ", " +
+          Math.floor(Math.random() * max) +
+          ", " +
+          Math.floor(Math.random() * max) +
+          ")";
+      if (this.playing || this.omega > 0) {
         requestAnimationFrame(this.render);
       }
       this.analyzer.getByteFrequencyData(this.frequency);
-      d3.select("#colored").style("stop-color", color);
+      $(".record-img").css("transform", "rotate(" + this.rot + "deg)");
+      d3.select("#colored").style("stop-color", this.color);
       d3.select("#playBtn")
         .select("svg")
         .selectAll("circle")
@@ -209,6 +217,19 @@ export default defineComponent({
         .attr("cx", "50%")
         .attr("cy", "50%")
         .attr("fill", "url(#gradient)");
+      this.frame++;
+      if (this.playing) {
+        if (this.omega <= 10) {
+          this.omega += 0.1;
+        }
+      } else {
+        if (this.omega > 0) {
+          this.omega -= 0.1;
+        } else {
+          this.omega = 0;
+        }
+      }
+      this.rot += this.omega;
     },
   },
   mounted() {
