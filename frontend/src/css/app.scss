@@ -1,0 +1,9 @@
+// app global css in SCSS form
+.record-cont svg {
+  position: absolute;
+  z-index: 0;
+  max-width: 100%;
+  top: 0%;
+  left: 50%;
+  transform: translateX(-50%);
+}
